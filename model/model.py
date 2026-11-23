@@ -12,6 +12,11 @@ class Model:
         self._costo = 0
 
         # TODO: Aggiungere eventuali altri attributi
+        self._escursioni_parco = []
+
+        #vincoli
+        self._max_giorni = None
+        self._max_budget = None
 
         # Caricamento
         self.load_escursioni()
@@ -39,6 +44,20 @@ class Model:
             --> Ogni PuntoInteresse ha un set di Escursioni.
         """
         # TODO
+        #recupero tutte le relazioni dal DAO
+        relazioni = EscursioneDAO.get_escursioni_punti_interesse()
+
+        for relazione in relazioni:
+            id_escursione = relazione["id_escursione"]
+            id_punto = relazione["id_punto_interesse"]
+
+            #recupero gli oggetti dai dizionari
+            escursione = self.escursioni_map[id_escursione]
+            punto = self.punti_interesse_map[id_punto]
+
+            #il collegamento è bidirezionale, quindi aggiungo il punto all'escursione e l'escursione al punto
+            escursione.punti_interesse.add(punto)
+            punto.escursioni.add(escursione)
 
     def genera_pacchetto(self, id_parco: str, max_giorni: int = None, max_budget: float = None):
         """
@@ -56,6 +75,16 @@ class Model:
         self._valore_ottimo = -1
 
         # TODO
+        self._max_giorni = max_giorni
+        self._max_budget = max_budget
+
+        #seleziono solo le escursioni del parco scelto
+        self._escursioni_parco = []
+        for escursione in self.escursioni_map.values():
+            if escursione.id_parco == id_parco:
+                self._escursioni_parco.append(escursione)
+
+        self._ricorsione(0,[], 0, 0, 0, set())
 
         return self._pacchetto_ottimo, self._costo, self._valore_ottimo
 
@@ -63,3 +92,44 @@ class Model:
         """ Algoritmo di ricorsione che deve trovare il pacchetto che massimizza il voto complessivo dei visitatori"""
 
         # TODO: è possibile cambiare i parametri formali della funzione se ritenuto opportuno
+        if valore_corrente > self._valore_ottimo:
+            self._valore_ottimo = valore_corrente
+            self._pacchetto_ottimo = pacchetto_parziale.copy()
+            self._costo = costo_corrente
+
+        for i in range(start_index, len(self._escursioni_parco)):
+            escursione = self._escursioni_parco[i]
+
+            #CONTROLLO SUI VINCOLI
+            #verifica sui punti di interesse uguali, non devono esserci duplicati
+            if punti_usati.intersection(escursione.punti_interesse): #intersection: restituisce gli elementi che sono presenti in entrambi gli insiemi
+                continue
+            #veriica sulla durata complessiva; non deve superare il limite
+            if self._max_giorni is not None and durata_corrente + escursione.durata_giorni > self._max_giorni:
+                continue
+            #verifica sul budget
+            if self._max_budget is not None and costo_corrente + escursione.costo > self._max_budget:
+                continue
+
+            pacchetto_parziale.append(escursione)
+
+            durata_corrente += escursione.durata_giorni
+            costo_corrente += escursione.costo
+
+            punti_usati.update(escursione.punti_interesse)
+
+            #calcolare il valore dei punti di interesse dell'escursione
+            valore_escursione = 0
+            for punto in escursione.punti_interesse:
+                valore_escursione += punto.voto_visitatori
+            valore_corrente += valore_escursione
+
+            self._ricorsione(i+1, pacchetto_parziale, durata_corrente, costo_corrente, valore_corrente, punti_usati)
+
+            #BACKTRACKING
+            pacchetto_parziale.pop()
+            durata_corrente -= escursione.durata_giorni
+            costo_corrente -= escursione.costo
+            valore_corrente -= valore_escursione
+
+            punti_usati.difference_update(escursione.punti_interesse) #difference_update() rimuove da un insieme tutti gli elementi che sono presenti in un altro insieme
